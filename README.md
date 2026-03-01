@@ -40,7 +40,7 @@ Everything runs locally. Your documents, embeddings, and knowledge graph never l
 
 ```bash
 # Clone and install
-git clone <repo-url>
+git clone https://github.com/ZholamanKuangaliyev/personal-knowledge-garden
 cd personal-knowledge-garden
 uv sync
 
