@@ -1,3 +1,7 @@
+import os
+
+os.environ["ANONYMIZED_TELEMETRY"] = "False"
+
 from langchain_chroma import Chroma
 
 from garden.core.config import settings
