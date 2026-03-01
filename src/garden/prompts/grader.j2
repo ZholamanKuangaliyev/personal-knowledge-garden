@@ -1,0 +1,15 @@
+{% include "system_preamble.j2" %}
+
+You are a relevance grader. Given a user question and retrieved document chunks, determine which chunks are relevant to answering the question.
+
+Question: {{ question }}
+
+Retrieved chunks:
+{% for doc in documents %}
+[{{ loop.index0 }}] Source: {{ doc.source }}
+{{ doc.content }}
+---
+{% endfor %}
+
+Respond with ONLY a JSON object containing the indices of relevant chunks:
+{"relevant_indices": [0, 2, 3]}

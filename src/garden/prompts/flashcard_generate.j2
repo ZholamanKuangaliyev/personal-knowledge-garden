@@ -1,0 +1,10 @@
+{% include "system_preamble.j2" %}
+
+Generate flashcards from the following text chunk. Each flashcard should test understanding of a key concept, fact, or relationship.
+
+Source: {{ source }}
+Text:
+{{ content }}
+
+Generate 2-4 flashcards. Respond with ONLY a JSON object:
+{"cards": [{"question": "...", "answer": "..."}, ...]}

@@ -1,0 +1,21 @@
+{% include "system_preamble.j2" %}
+
+Generate creative ideas about the given topic using the user's stored knowledge as inspiration.
+
+Topic: {{ topic }}
+
+Relevant knowledge from the garden:
+{% for doc in documents %}
+[Source: {{ doc.source }}]
+{{ doc.content }}
+---
+{% endfor %}
+
+{% if concepts %}
+Related concepts in the knowledge graph: {{ concepts | join(", ") }}
+{% endif %}
+
+Generate 3-5 creative ideas that connect the topic with the user's existing knowledge. Each idea should be actionable and specific.
+
+Respond with ONLY a JSON object:
+{"ideas": [{"title": "short title", "description": "detailed description", "connections": ["related concept 1", "related concept 2"]}, ...]}

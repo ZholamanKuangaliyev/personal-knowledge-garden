@@ -1,6 +1,4 @@
-def main():
-    print("Hello from personal-knowledge-garden!")
-
+from garden.cli.app import cli
 
 if __name__ == "__main__":
-    main()
+    cli()

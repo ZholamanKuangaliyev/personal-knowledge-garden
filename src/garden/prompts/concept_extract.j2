@@ -1,0 +1,15 @@
+{% include "system_preamble.j2" %}
+
+Extract key concepts from the following text chunks. For each concept, provide its name and a brief description.
+
+Source document: {{ source }}
+
+Text chunks:
+{% for chunk in chunks %}
+[Chunk {{ loop.index0 }}]
+{{ chunk }}
+---
+{% endfor %}
+
+Respond with ONLY a JSON object:
+{"concepts": [{"name": "concept name", "description": "brief description"}, ...]}

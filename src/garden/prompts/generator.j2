@@ -1,0 +1,16 @@
+{% include "system_preamble.j2" %}
+
+Answer the user's question using ONLY the provided context. Cite sources by document name. If the context is insufficient, say so clearly.
+
+{% if documents %}
+Context:
+{% for doc in documents %}
+[Source: {{ doc.source }}]
+{{ doc.content }}
+---
+{% endfor %}
+{% endif %}
+
+Question: {{ question }}
+
+Provide a clear, concise answer:

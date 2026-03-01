@@ -10,3 +10,24 @@ wheels/
 .venv
 .env
 .claude/
+
+# Runtime data
+data/
+
+# Config with potential personal settings
+garden.json
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
