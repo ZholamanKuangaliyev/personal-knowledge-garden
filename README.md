@@ -2,7 +2,7 @@
 
 > **This project is in a very raw, early stage of development.** Expect breaking changes, incomplete features, and rough edges. Use at your own risk.
 
-A local-first CLI tool for building a personal knowledge base. Ingest documents, chat with your data using RAG, discover concept connections, generate flashcards, and surface unexpected insights — all running on your machine.
+A local-first CLI tool for building a personal knowledge base. Ingest documents, chat with your data using a versatile AI assistant, discover concept connections, generate flashcards, and surface unexpected insights — all running on your machine.
 
 ## Disclaimer
 
@@ -45,7 +45,7 @@ cd personal-knowledge-garden
 uv sync
 
 # Pull the required models
-ollama pull qwen3:8b
+ollama pull qwen3.5:9b
 ollama pull nomic-embed-text
 ```
 
@@ -54,7 +54,7 @@ ollama pull nomic-embed-text
 | Command | Description |
 |---------|-------------|
 | `garden ingest <path> [--tag TAG]` | Load files (.txt, .md, .pdf), chunk, embed, and store them |
-| `garden chat` | Interactive RAG chat — ask questions about your stored knowledge |
+| `garden chat [-r ROLE]` | Interactive chat with role-based reasoning (`general`, `analyst`, `summarizer`, `creative`, `researcher`) |
 | `garden links [--concept X] [--depth N]` | Explore the concept graph and connections between ideas |
 | `garden review [--count N]` | Spaced repetition flashcard session using the SM-2 algorithm |
 | `garden surprise [--count N]` | Surface unexpected cross-domain insights from your knowledge |
@@ -69,7 +69,7 @@ ollama pull nomic-embed-text
 
 **Ingestion** — Documents are split into chunks, embedded using `nomic-embed-text`, and stored in a local ChromaDB instance. Concepts are extracted and linked in a knowledge graph. Duplicate files are detected by content hash and skipped automatically.
 
-**Chat** — Questions go through a LangGraph agent pipeline: routing, retrieval, relevance grading, and answer generation with source citations. If retrieved documents aren't relevant, the query is automatically rewritten (up to 2 retries).
+**Chat** — Questions go through a LangGraph agent pipeline: routing, role detection, retrieval, relevance grading, and answer generation with source citations. If retrieved documents aren't relevant, the query is automatically rewritten (up to 2 retries). The chat supports 5 agent roles — `general` (fast, no reasoning overhead), `analyst`, `summarizer`, `creative`, and `researcher` (all with deep CoT reasoning via `/think` tokens). Roles can auto-switch based on your question or be set manually with `/switch <role>`.
 
 **Concept Linking** — Concepts extracted from different documents are connected based on co-occurrence and shared terminology. The graph builds up over time as you ingest more material.
 
@@ -79,7 +79,7 @@ ollama pull nomic-embed-text
 
 ## Changing Models
 
-The default models are `qwen3:8b` (LLM) and `nomic-embed-text` (embeddings). You can swap them to any model available in Ollama.
+The default models are `qwen3.5:9b` (LLM) and `nomic-embed-text` (embeddings). You can swap them to any model available in Ollama.
 
 ```bash
 # View current config
@@ -111,7 +111,7 @@ PKG_LLM_MODEL=mistral:7b garden chat
 
 ## Testing
 
-The project includes a comprehensive test suite (165 tests) covering all modules. Tests use isolated SQLite databases via `tmp_path` and mock all external dependencies (Ollama LLM, ChromaDB).
+The project includes a comprehensive test suite (238 tests) covering all modules. Tests use isolated SQLite databases via `tmp_path` and mock all external dependencies (Ollama LLM, ChromaDB).
 
 ```bash
 # Install dev dependencies
@@ -131,7 +131,7 @@ uv run pytest --cov=garden
 
 | Component | Choice |
 |-----------|--------|
-| LLM | Ollama — qwen3:8b |
+| LLM | Ollama — qwen3.5:9b |
 | Embeddings | Ollama — nomic-embed-text |
 | Framework | LangChain + LangGraph |
 | Vector Store | ChromaDB (embedded, local) |
@@ -155,13 +155,52 @@ To start fresh, run `garden clear` or delete the `data/` directory.
 
 ## Changelog
 
+### v0.3.2
+
+- Redesigned welcome screen with a data-driven 8x8 visualization grid replacing ASCII flower art
+- Grid cells are color-coded proportionally to garden stats: docs, chunks, concepts, links, cards, due
+- Responsive layout adapts to terminal width: vertical stack (<60), side-by-side (60-90), full layout (>90)
+- Welcome module (`garden.ui.welcome`) built with pure, composable functions for easy testing
+- Added color legend and all 6 garden metrics to the info panel
+- Moved welcome logic out of `panels.py` into dedicated `welcome.py` module
+- Extended test suite to 238 tests (new welcome grid, info, panel, and layout tests)
+
+### v0.3.1
+
+- Upgraded default LLM from `qwen3:8b` to `qwen3.5:9b`
+- Added agent role system with 5 roles: `general`, `analyst`, `summarizer`, `creative`, `researcher`
+- Each role controls Chain-of-Thought reasoning via qwen3's native `/think` and `/no_think` tokens
+- Auto role detection: the router automatically switches from `general` to a specialist role when the query warrants it
+- Chat welcome screen with model info and document/concept counts
+- In-chat commands: `/roles`, `/switch <role>`, `/auto` (toggle auto-detection)
+- New `--role` / `-r` CLI option to start chat in a specific role
+- Rewrote system preamble to allow versatile reasoning beyond strict RAG-only constraints
+- Generator prompt now injects role-specific instructions and think mode tokens
+- Extended test suite to 228 tests (new role system, prompt rendering, chat command tests)
+
+### v0.3.0
+
+- Added structured logging across all modules via `garden.*` logger hierarchy
+- All silent `except` blocks now log warnings/errors before swallowing exceptions
+- Replaced `print()` calls in database migrations with proper `logger.info()` calls
+- Agent nodes (router, grader, rewriter, retriever, generator) log routing decisions and fallbacks
+- Knowledge modules (concept extractor, idea generator, insight engine) log LLM parse failures
+- CLI commands (ingest, chat, clear, forget, export, search, status, migrate-embeddings) log operations and errors
+- Store layer (vector store, database) logs initialization, queries, and deletions
+- Ingestion layer (loader, embedder, PDF/text loaders) logs file processing
+- All logging controlled via `-v` verbose flag: WARNING by default, DEBUG when verbose
+- Added `search` and `export` CLI commands
+- Added embedding model migration command (`garden migrate-embeddings`)
+- Added `llm_utils` module with centralized LLM access and robust JSON response parsing
+- Extended test suite to 204 tests
+
 ### v0.2.0
 
 - Migrated flashcards and knowledge graph storage from JSON files to SQLite
 - Added duplicate detection during ingestion (content hash + source name)
 - Added document registry to track ingested files
 - Automatic one-time migration from JSON to SQLite on first run
-- Added comprehensive test suite (165 tests) covering all modules
+- Added initial test suite (165 tests) covering all modules
 
 ### v0.1.0
 

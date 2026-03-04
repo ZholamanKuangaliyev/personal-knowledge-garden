@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from garden.core.models import Chunk, SearchResult
 import garden.store.vector_store as vs_mod
 
 
@@ -20,8 +21,8 @@ def mock_store():
 class TestAddChunks:
     def test_add_chunks(self, mock_store):
         chunks = [
-            {"id": "c1", "content": "text1", "source": "s.md", "tags": ["t1"], "chunk_index": 0},
-            {"id": "c2", "content": "text2", "source": "s.md", "tags": [], "chunk_index": 1},
+            Chunk(id="c1", content="text1", source="s.md", tags=["t1"], chunk_index=0),
+            Chunk(id="c2", content="text2", source="s.md", tags=[], chunk_index=1),
         ]
         vs_mod.add_chunks(chunks)
         mock_store.add_texts.assert_called_once()
@@ -39,9 +40,16 @@ class TestSearch:
 
         results = vs_mod.search("query", k=3)
         assert len(results) == 1
-        assert results[0]["content"] == "result text"
-        assert results[0]["source"] == "s.md"
-        assert results[0]["score"] == 0.9
+        assert isinstance(results[0], SearchResult)
+        assert results[0].content == "result text"
+        assert results[0].source == "s.md"
+        assert results[0].score == 0.9
+
+    def test_search_with_where_filter(self, mock_store):
+        mock_store.similarity_search_with_score.return_value = []
+        vs_mod.search("query", where={"source": "test.md"})
+        call_kwargs = mock_store.similarity_search_with_score.call_args.kwargs
+        assert call_kwargs["filter"] == {"source": "test.md"}
 
 
 class TestGetChunkCount:

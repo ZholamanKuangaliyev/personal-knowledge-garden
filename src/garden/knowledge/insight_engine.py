@@ -1,13 +1,14 @@
-import json
 import random
 
 import networkx as nx
-from langchain_ollama import ChatOllama
 
-from garden.core.config import settings
+from garden.core.llm_utils import get_llm, parse_json_response
+from garden.core.logging import get_logger
 from garden.prompts.loader import render
 from garden.store.graph_store import get_graph
 from garden.store.vector_store import search
+
+_log = get_logger("insight_engine")
 
 
 def find_bridge_pairs(max_pairs: int = 5) -> list[dict]:
@@ -32,6 +33,7 @@ def find_bridge_pairs(max_pairs: int = 5) -> list[dict]:
         try:
             distance = nx.shortest_path_length(graph, n1, n2)
         except nx.NetworkXNoPath:
+            _log.debug("No path between '%s' and '%s'", n1, n2)
             distance = float("inf")
 
         if distance >= 2:
@@ -43,8 +45,8 @@ def find_bridge_pairs(max_pairs: int = 5) -> list[dict]:
                 "concept_b": n2,
                 "source_a": d1.get("source", ""),
                 "source_b": d2.get("source", ""),
-                "context_a": ctx_a[0]["content"] if ctx_a else "",
-                "context_b": ctx_b[0]["content"] if ctx_b else "",
+                "context_a": ctx_a[0].content if ctx_a else "",
+                "context_b": ctx_b[0].content if ctx_b else "",
                 "distance": distance,
             })
 
@@ -60,11 +62,12 @@ def generate_insights(count: int = 3) -> list[dict]:
         return []
 
     prompt = render("insight.j2", pairs=pairs)
-    llm = ChatOllama(model=settings.llm_model, base_url=settings.ollama_base_url)
+    llm = get_llm()
     response = llm.invoke(prompt)
 
     try:
-        result = json.loads(response.content)
+        result = parse_json_response(response.content)
         return result.get("insights", [])
-    except (json.JSONDecodeError, AttributeError):
+    except (ValueError, AttributeError) as exc:
+        _log.warning("Failed to generate insights: %s", exc)
         return []

@@ -45,6 +45,12 @@ class Flashcard(BaseModel):
     next_review: datetime = Field(default_factory=datetime.now)
 
 
+class SearchResult(BaseModel):
+    content: str
+    source: str
+    score: float = 0.0
+
+
 class GardenStats(BaseModel):
     total_documents: int = 0
     total_chunks: int = 0

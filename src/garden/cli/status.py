@@ -1,7 +1,10 @@
 import click
 from rich.table import Table
 
+from garden.core.logging import get_logger
 from garden.ui.console import console
+
+_log = get_logger("cli.status")
 
 
 @click.command()
@@ -20,8 +23,8 @@ def status() -> None:
         stats = get_graph_stats()
         concept_count = stats["nodes"]
         link_count = stats["edges"]
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Failed to load graph stats: %s", exc)
 
     card_count = 0
     cards_due = 0
@@ -30,8 +33,8 @@ def status() -> None:
         stats = get_card_stats()
         card_count = stats["total"]
         cards_due = stats["due"]
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Failed to load card stats: %s", exc)
 
     table = Table(title="Garden Status", show_header=False, padding=(0, 2))
     table.add_column("Metric", style="bold cyan")

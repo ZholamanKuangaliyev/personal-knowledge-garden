@@ -1,6 +1,14 @@
+{{ think_token }}
 {% include "system_preamble.j2" %}
 
-Answer the user's question using ONLY the provided context. Cite sources by document name. If the context is insufficient, say so clearly.
+Use the provided context as your primary source. When context is available, ground your answers in it and cite sources. When reasoning beyond the provided documents, make that clear.
+
+{% if history %}
+Conversation history:
+{% for msg in history %}
+{{ msg.role }}: {{ msg.content }}
+{% endfor %}
+{% endif %}
 
 {% if documents %}
 Context:

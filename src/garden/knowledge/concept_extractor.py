@@ -1,14 +1,13 @@
-import json
-
-from langchain_ollama import ChatOllama
-
-from garden.core.config import settings
+from garden.core.llm_utils import get_llm, parse_json_response
+from garden.core.logging import get_logger
 from garden.core.models import Concept
 from garden.prompts.loader import render
 
+_log = get_logger("concept_extractor")
+
 
 def extract_concepts(chunks: list[str], source: str, batch_size: int = 5) -> list[Concept]:
-    llm = ChatOllama(model=settings.llm_model, base_url=settings.ollama_base_url)
+    llm = get_llm()
     all_concepts: list[Concept] = []
     seen: set[str] = set()
 
@@ -18,7 +17,7 @@ def extract_concepts(chunks: list[str], source: str, batch_size: int = 5) -> lis
         response = llm.invoke(prompt)
 
         try:
-            result = json.loads(response.content)
+            result = parse_json_response(response.content)
             for c in result.get("concepts", []):
                 name = c["name"].lower().strip()
                 if name and name not in seen:
@@ -26,7 +25,8 @@ def extract_concepts(chunks: list[str], source: str, batch_size: int = 5) -> lis
                     all_concepts.append(
                         Concept(name=name, source=source, description=c.get("description", ""))
                     )
-        except (json.JSONDecodeError, KeyError, AttributeError):
+        except (ValueError, KeyError, AttributeError) as exc:
+            _log.warning("Failed to extract concepts from batch %d of '%s': %s", i // batch_size + 1, source, exc)
             continue
 
     return all_concepts

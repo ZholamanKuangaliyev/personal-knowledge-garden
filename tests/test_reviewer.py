@@ -8,9 +8,9 @@ import pytest
 from garden.core.models import Flashcard
 
 
-def _make_due_card(card_id="c1"):
+def _make_due_card(card_id="c1", question="What is X?", answer="X is Y"):
     return Flashcard(
-        id=card_id, question="What is X?", answer="X is Y",
+        id=card_id, question=question, answer=answer,
         source="s.md", next_review=datetime.now() - timedelta(hours=1),
     )
 
@@ -67,3 +67,21 @@ class TestRunReview:
 
         run_review(10)
         mock_update.assert_not_called()
+
+
+class TestRenderCardText:
+    @patch("garden.srs.reviewer.console")
+    def test_plain_text_rendered_as_markdown(self, mock_console):
+        from garden.srs.reviewer import _render_card_text
+
+        _render_card_text("Simple answer text")
+        mock_console.print.assert_called_once()
+
+    @patch("garden.srs.reviewer.console")
+    def test_code_fence_rendered_with_syntax(self, mock_console):
+        from garden.srs.reviewer import _render_card_text
+
+        text = "Here is code:\n```python\nprint('hello')\n```"
+        _render_card_text(text)
+        # Should call print multiple times (text before + syntax block)
+        assert mock_console.print.call_count >= 2

@@ -4,6 +4,9 @@ from datetime import datetime
 from pathlib import Path
 
 from garden.core.config import settings
+from garden.core.logging import get_logger
+
+_log = get_logger("database")
 
 _connection: sqlite3.Connection | None = None
 
@@ -74,7 +77,8 @@ def _migrate_flashcards() -> None:
 
     try:
         data = json.loads(cards_file.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        _log.error("Failed to read flashcards JSON %s: %s", cards_file, exc)
         return
 
     if not data:
@@ -101,7 +105,7 @@ def _migrate_flashcards() -> None:
 
     backup = cards_file.with_suffix(".json.bak")
     cards_file.rename(backup)
-    print(f"Migrated {len(data)} flashcards to SQLite. JSON backed up to {backup}")
+    _log.info("Migrated %d flashcards to SQLite. JSON backed up to %s", len(data), backup)
 
 
 def _migrate_graph() -> None:
@@ -119,7 +123,11 @@ def _migrate_graph() -> None:
     try:
         data = json.loads(graph_file.read_text(encoding="utf-8"))
         graph = nx.node_link_graph(data)
-    except (json.JSONDecodeError, OSError, Exception):
+    except (json.JSONDecodeError, OSError) as exc:
+        _log.error("Failed to read graph JSON %s: %s", graph_file, exc)
+        return
+    except Exception as exc:
+        _log.error("Failed to parse knowledge graph from %s: %s", graph_file, exc)
         return
 
     if graph.number_of_nodes() == 0:
@@ -141,4 +149,4 @@ def _migrate_graph() -> None:
 
     backup = graph_file.with_suffix(".json.bak")
     graph_file.rename(backup)
-    print(f"Migrated {graph.number_of_nodes()} concepts and {graph.number_of_edges()} links to SQLite. JSON backed up to {backup}")
+    _log.info("Migrated %d concepts and %d links to SQLite. JSON backed up to %s", graph.number_of_nodes(), graph.number_of_edges(), backup)

@@ -10,3 +10,7 @@ class AgentState(TypedDict, total=False):
     relevance_score: float
     retry_count: int
     sources: list[str]
+    history: list[dict]
+    search_filters: dict
+    role: str
+    auto_role: bool
