@@ -1,6 +1,7 @@
 import hashlib
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import click
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -49,6 +50,92 @@ def _register_document(source: str, content_hash: str, tags: list[str]) -> None:
     conn.commit()
 
 
+def ingest_single_file(
+    file: Path,
+    tags: list[str] | None = None,
+    skip_concepts: bool = False,
+    skip_cards: bool = False,
+    on_progress: Callable[[str], None] | None = None,
+) -> dict:
+    """Ingest a single file into the knowledge garden.
+
+    Args:
+        file: Path to the file to ingest.
+        tags: Optional tags to apply.
+        skip_concepts: Skip concept extraction.
+        skip_cards: Skip flashcard generation.
+        on_progress: Optional callback called with status messages like "Embedding...", "Extracting concepts...".
+
+    Returns:
+        {"chunks": int, "concepts": int, "cards": int, "links": int}
+
+    Raises:
+        ValueError: If file is a duplicate.
+        Exception: On ingestion failure.
+    """
+    from garden.ingestion.chunker import chunk_text
+    from garden.ingestion.loader import load_file
+    from garden.knowledge.concept_extractor import extract_concepts
+    from garden.knowledge.linker import find_links
+    from garden.srs.card_generator import generate_cards
+    from garden.store.card_store import add_cards
+    from garden.store.graph_store import add_concepts, add_links, get_all_concepts
+    from garden.store.transaction import garden_transaction
+    from garden.store.vector_store import add_chunks
+
+    tags = tags or []
+
+    content_hash = _compute_hash(file)
+    dup_reason = _check_duplicate(file, content_hash)
+    if dup_reason:
+        raise ValueError(dup_reason)
+
+    content = load_file(file)
+    chunks = chunk_text(content, source=file.name, tags=tags)
+
+    num_concepts = 0
+    num_links = 0
+    num_cards = 0
+
+    with garden_transaction():
+        # 1. Embed and store chunks
+        if on_progress:
+            on_progress(f"Embedding {file.name}...")
+        add_chunks(chunks)
+
+        # 2. Extract concepts and build graph
+        if not skip_concepts:
+            if on_progress:
+                on_progress(f"Extracting concepts from {file.name}...")
+            chunk_texts = [c.content for c in chunks]
+            # Pass existing concept names so the LLM reuses them
+            # instead of creating duplicates under different wording.
+            existing_before = get_all_concepts()
+            existing_names = [c.name for c in existing_before]
+            concepts = extract_concepts(chunk_texts, source=file.name, existing_names=existing_names)
+            if concepts:
+                existing = get_all_concepts()
+                links = find_links(concepts, existing)
+                add_concepts(concepts, batch=True)
+                add_links(links, batch=True)
+                num_concepts = len(concepts)
+                num_links = len(links)
+
+        # 3. Generate flashcards
+        if not skip_cards:
+            if on_progress:
+                on_progress(f"Generating flashcards for {file.name}...")
+            cards = generate_cards(chunks)
+            if cards:
+                add_cards(cards)
+                num_cards = len(cards)
+
+        # Register document after successful ingestion
+        _register_document(file.name, content_hash, tags)
+
+    return {"chunks": len(chunks), "concepts": num_concepts, "cards": num_cards, "links": num_links}
+
+
 @click.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 @click.option("--tag", "-t", multiple=True, help="Tags to apply to the document.")
@@ -57,15 +144,7 @@ def _register_document(source: str, content_hash: str, tags: list[str]) -> None:
 @click.option("--incremental", is_flag=True, help="Silently skip already-ingested files.")
 def ingest(path: Path, tag: tuple[str, ...], skip_concepts: bool, skip_cards: bool, incremental: bool) -> None:
     """Ingest a file or directory into the knowledge garden."""
-    from garden.ingestion.chunker import chunk_text
-    from garden.ingestion.loader import load_file
-    from garden.knowledge.concept_extractor import extract_concepts
-    from garden.knowledge.linker import find_links
-    from garden.srs.card_generator import generate_cards
-    from garden.store.card_store import add_cards
-    from garden.store.graph_store import add_concepts, add_links, flush_cache, get_all_concepts
-    from garden.store.transaction import garden_transaction
-    from garden.store.vector_store import add_chunks
+    from garden.store.graph_store import flush_cache
 
     files = list(path.rglob("*")) if path.is_dir() else [path]
     files = [f for f in files if f.is_file() and f.suffix.lower() in (".txt", ".md", ".pdf")]
@@ -87,60 +166,35 @@ def ingest(path: Path, tag: tuple[str, ...], skip_concepts: bool, skip_cards: bo
     ) as progress:
         for file in files:
             try:
-                # Duplicate detection
-                content_hash = _compute_hash(file)
-                dup_reason = _check_duplicate(file, content_hash)
-                if dup_reason:
-                    if not incremental:
-                        console.print(f"  [yellow]~[/yellow] {file.name}: skipped — {dup_reason}")
-                    continue
+                task = None
 
-                content = load_file(file)
-                chunks = chunk_text(content, source=file.name, tags=tags)
+                def _update_progress(msg: str) -> None:
+                    nonlocal task
+                    if task is not None:
+                        progress.remove_task(task)
+                    task = progress.add_task(msg, total=None)
 
-                with garden_transaction():
-                    # 1. Embed and store chunks
-                    task = progress.add_task(f"Embedding {file.name}...", total=None)
-                    add_chunks(chunks)
-                    total_chunks += len(chunks)
+                result = ingest_single_file(
+                    file,
+                    tags=tags,
+                    skip_concepts=skip_concepts,
+                    skip_cards=skip_cards,
+                    on_progress=_update_progress,
+                )
+                if task is not None:
                     progress.remove_task(task)
-                    console.print(f"  [green]+[/green] {file.name} ({len(chunks)} chunks)")
 
-                    # 2. Extract concepts and build graph
-                    if not skip_concepts:
-                        task = progress.add_task(f"Extracting concepts from {file.name}...", total=None)
-                        chunk_texts = [c.content for c in chunks]
-                        # Pass existing concept names so the LLM reuses them
-                        # instead of creating duplicates under different wording.
-                        existing_before = get_all_concepts()
-                        existing_names = [c.name for c in existing_before]
-                        concepts = extract_concepts(chunk_texts, source=file.name, existing_names=existing_names)
-                        if concepts:
-                            existing = get_all_concepts()
-                            links = find_links(concepts, existing)
-                            add_concepts(concepts, batch=True)
-                            add_links(links, batch=True)
-                            total_concepts += len(concepts)
-                            progress.remove_task(task)
-                            console.print(f"    [cyan]Concepts:[/cyan] {len(concepts)} extracted, {len(links)} links")
-                        else:
-                            progress.remove_task(task)
-
-                    # 3. Generate flashcards
-                    if not skip_cards:
-                        task = progress.add_task(f"Generating flashcards for {file.name}...", total=None)
-                        cards = generate_cards(chunks)
-                        if cards:
-                            add_cards(cards)
-                            total_cards += len(cards)
-                            progress.remove_task(task)
-                            console.print(f"    [cyan]Cards:[/cyan] {len(cards)} generated")
-                        else:
-                            progress.remove_task(task)
-
-                    # Register document after successful ingestion
-                    _register_document(file.name, content_hash, tags)
-
+                total_chunks += result["chunks"]
+                total_concepts += result["concepts"]
+                total_cards += result["cards"]
+                console.print(f"  [green]+[/green] {file.name} ({result['chunks']} chunks)")
+                if result["concepts"]:
+                    console.print(f"    [cyan]Concepts:[/cyan] {result['concepts']} extracted, {result['links']} links")
+                if result["cards"]:
+                    console.print(f"    [cyan]Cards:[/cyan] {result['cards']} generated")
+            except ValueError as e:
+                if not incremental:
+                    console.print(f"  [yellow]~[/yellow] {file.name}: skipped — {e}")
             except Exception as e:
                 _log.error("Failed to ingest '%s': %s", file.name, e, exc_info=True)
                 console.print(f"  [red]x[/red] {file.name}: {e}")

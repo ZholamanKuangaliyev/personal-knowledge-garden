@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from pathlib import Path
 
 import click
 from rich.live import Live
@@ -19,6 +20,59 @@ from garden.ui.welcome import collect_garden_stats, show_welcome
 
 _log = get_logger("cli.chat")
 
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
+
+
+def _detect_file_path(text: str) -> Path | None:
+    """Detect if input text is a file path (e.g., from drag-and-drop)."""
+    cleaned = text.strip().strip("'\"")  # Strip quotes added by terminal
+    # On Windows, drag-drop may add quotes or use backslashes
+    if not cleaned:
+        return None
+    try:
+        p = Path(cleaned)
+        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
+            return p
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _ingest_dropped_file(file: Path) -> None:
+    """Ingest a file dropped into the chat."""
+    from garden.cli.ingest import ingest_single_file
+    from garden.store.graph_store import flush_cache
+
+    console.print(f"\n[bold cyan]📄 File detected:[/bold cyan] {file.name}")
+    console.print("[dim]Starting ingestion...[/dim]")
+
+    with Live(Spinner("dots", text="Ingesting..."), console=console, transient=True) as live:
+        def _update_status(msg: str) -> None:
+            live.update(Spinner("dots", text=msg))
+
+        try:
+            result = ingest_single_file(file, on_progress=_update_status)
+            flush_cache()
+        except ValueError as e:
+            console.print(f"[yellow]Skipped:[/yellow] {e}")
+            return
+        except Exception as e:
+            _log.error("Drop-ingest failed for '%s': %s", file.name, e, exc_info=True)
+            console.print(f"[red]Ingestion failed:[/red] {e}")
+            return
+
+    # Success summary
+    console.print(f"[bold green]✓ Ingested {file.name}[/bold green]")
+    parts = []
+    if result["chunks"]:
+        parts.append(f"{result['chunks']} chunks")
+    if result["concepts"]:
+        parts.append(f"{result['concepts']} concepts")
+    if result["cards"]:
+        parts.append(f"{result['cards']} cards")
+    if parts:
+        console.print(f"  [dim]{', '.join(parts)}[/dim]")
+    console.print()
 
 
 def _show_roles() -> None:
@@ -131,6 +185,12 @@ def chat(source: str | None, tag: str | None, role: str, continue_session: bool,
             break
 
         if not stripped:
+            continue
+
+        # Detect file drag-and-drop
+        dropped_file = _detect_file_path(stripped)
+        if dropped_file:
+            _ingest_dropped_file(dropped_file)
             continue
 
         # Handle slash commands

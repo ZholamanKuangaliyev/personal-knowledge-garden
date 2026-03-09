@@ -90,6 +90,29 @@ def get_document_sources() -> list[str]:
     return sorted(sources)
 
 
+def get_source_details() -> list[dict]:
+    """Return per-source details: name, chunk count, tags."""
+    store = get_vector_store()
+    results = store._collection.get(include=["metadatas"])
+    metadatas = results["metadatas"] or []
+
+    source_info: dict[str, dict] = {}
+    for m in metadatas:
+        src = m.get("source", "unknown")
+        if src not in source_info:
+            source_info[src] = {"source": src, "chunks": 0, "tags": set()}
+        source_info[src]["chunks"] += 1
+        tags_str = m.get("tags", "")
+        if tags_str:
+            source_info[src]["tags"].update(t.strip() for t in tags_str.split(",") if t.strip())
+
+    # Convert sets to sorted lists for serialization
+    for info in source_info.values():
+        info["tags"] = sorted(info["tags"])
+
+    return sorted(source_info.values(), key=lambda x: x["source"])
+
+
 def forget_source(source: str) -> int:
     store = get_vector_store()
     results = store._collection.get(where={"source": source}, include=[])

@@ -12,6 +12,7 @@ from garden.cli.migrate_embeddings import migrate_embeddings
 from garden.cli.review import review
 from garden.cli.search import search
 from garden.cli.sessions import sessions
+from garden.cli.sources import sources
 from garden.cli.status import status
 from garden.cli.surprise import surprise
 from garden.core.logging import setup_logging
@@ -40,5 +41,6 @@ cli.add_command(clear)
 cli.add_command(config)
 cli.add_command(search)
 cli.add_command(sessions)
+cli.add_command(sources)
 cli.add_command(migrate_embeddings)
 cli.add_command(export)
