@@ -11,7 +11,7 @@ class TestSettings:
         assert s.embedding_model == "nomic-embed-text"
         assert s.chunk_size == 1000
         assert s.chunk_overlap == 200
-        assert s.retrieval_k == 5
+        assert s.retrieval_k == 3
         assert s.max_retries == 2
         assert s.default_review_count == 10
         assert s.default_surprise_count == 3

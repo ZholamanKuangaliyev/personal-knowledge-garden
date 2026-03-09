@@ -1,7 +1,7 @@
 import json
 import sqlite3
+from contextlib import suppress
 from datetime import datetime
-from pathlib import Path
 
 from garden.core.config import settings
 from garden.core.logging import get_logger
@@ -44,7 +44,39 @@ CREATE TABLE IF NOT EXISTS documents (
     ingested_at TEXT NOT NULL,
     tags TEXT DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    last_active TEXT NOT NULL,
+    role TEXT DEFAULT 'general',
+    title TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_flashcards_source ON flashcards(source);
+CREATE INDEX IF NOT EXISTS idx_flashcards_next_review ON flashcards(next_review);
+CREATE INDEX IF NOT EXISTS idx_concepts_source ON concepts(source);
+CREATE INDEX IF NOT EXISTS idx_concept_links_source ON concept_links(source_concept);
+CREATE INDEX IF NOT EXISTS idx_concept_links_target ON concept_links(target_concept);
+CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_last_active ON chat_sessions(last_active);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY
+);
 """
+
+CURRENT_SCHEMA_VERSION = 2
 
 
 def get_connection() -> sqlite3.Connection:
@@ -56,8 +88,58 @@ def get_connection() -> sqlite3.Connection:
         _connection.execute("PRAGMA journal_mode=WAL")
         _connection.execute("PRAGMA foreign_keys=ON")
         _connection.executescript(_SCHEMA)
+        _apply_migrations()
         _migrate_json_data()
     return _connection
+
+
+def _apply_migrations() -> None:
+    """Run schema migrations based on version tracking."""
+    conn = _connection
+    row = conn.execute(
+        "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+    ).fetchone()
+    current = row[0] if row else 0
+
+    if current < 2:
+        _migrate_to_v2(conn)
+
+    if current < CURRENT_SCHEMA_VERSION:
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_version (version) VALUES (?)",
+            (CURRENT_SCHEMA_VERSION,),
+        )
+        conn.commit()
+        _log.info("Schema updated to version %d", CURRENT_SCHEMA_VERSION)
+
+
+def _migrate_to_v2(conn) -> None:
+    """Schema v2: add enriched model fields and missing indexes."""
+    _log.info("Running migration to schema version 2")
+
+    # New columns on concepts
+    for col, typedef in [("category", "TEXT DEFAULT ''"), ("importance", "REAL DEFAULT 0.0")]:
+        with suppress(Exception):
+            conn.execute(f"ALTER TABLE concepts ADD COLUMN {col} {typedef}")
+
+    # New columns on flashcards
+    for col, typedef in [
+        ("last_reviewed_at", "TEXT"),
+        ("review_count", "INTEGER DEFAULT 0"),
+        ("source_chunk_id", "TEXT DEFAULT ''"),
+    ]:
+        with suppress(Exception):
+            conn.execute(f"ALTER TABLE flashcards ADD COLUMN {col} {typedef}")
+
+    # Missing indexes for common queries
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_flashcards_created_at ON flashcards(created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_concept_links_weight ON concept_links(weight)",
+        "CREATE INDEX IF NOT EXISTS idx_documents_ingested_at ON documents(ingested_at)",
+    ]:
+        conn.execute(idx_sql)
+
+    conn.commit()
 
 
 def _migrate_json_data() -> None:

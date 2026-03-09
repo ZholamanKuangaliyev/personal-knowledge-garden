@@ -1,6 +1,14 @@
+from contextlib import contextmanager
+
 import click
 from rich.live import Live
+from rich.markdown import Markdown
 from rich.spinner import Spinner
+
+
+@contextmanager
+def _nullcontext():
+    yield
 
 from garden.agent.roles import DEFAULT_ROLE, ROLES, VALID_ROLES, get_role
 from garden.core.config import settings
@@ -10,8 +18,6 @@ from garden.ui.panels import show_answer, show_error
 from garden.ui.welcome import collect_garden_stats, show_welcome
 
 _log = get_logger("cli.chat")
-
-_MAX_HISTORY = 20  # 10 exchanges (user + assistant)
 
 
 
@@ -59,9 +65,20 @@ def _handle_command(command: str, current_role: str, auto_detect: bool) -> tuple
 @click.option("--source", "-s", default=None, help="Filter retrieval by source document.")
 @click.option("--tag", "-t", default=None, help="Filter retrieval by tag.")
 @click.option("--role", "-r", default=DEFAULT_ROLE, type=click.Choice(sorted(VALID_ROLES)), help="Starting role.")
-def chat(source: str | None, tag: str | None, role: str) -> None:
+@click.option("--continue-session", "continue_session", is_flag=True, help="Continue the last chat session.")
+@click.option("--stream/--no-stream", default=False, help="Stream responses token-by-token.")
+def chat(source: str | None, tag: str | None, role: str, continue_session: bool, stream: bool) -> None:
     """Interactive chat with your knowledge garden."""
     from garden.agent.graph import get_agent
+    from garden.agent.nodes.generator import clear_stream_callback, set_stream_callback
+    from garden.core.llm_utils import stream_llm
+    from garden.store.chat_store import (
+        add_message,
+        create_session,
+        get_recent_sessions,
+        get_session_messages,
+        update_session_title,
+    )
 
     stats = collect_garden_stats()
     show_welcome(model=settings.llm_model, role=role, stats=stats)
@@ -74,13 +91,30 @@ def chat(source: str | None, tag: str | None, role: str) -> None:
     agent = get_agent()
     history: list[dict] = []
     current_role = role
-    auto_detect = True
+    auto_detect = False
+
+    # Session management
+    session_id = None
+    if continue_session:
+        recent = get_recent_sessions(limit=1)
+        if recent:
+            session_id = recent[0]["id"]
+            current_role = recent[0].get("role", role)
+            # Load previous messages into history
+            prev_messages = get_session_messages(session_id, limit=settings.chat_max_history)
+            history = [{"role": m["role"], "content": m["content"]} for m in prev_messages]
+            console.print(f"[dim]Resuming session with {len(history)} messages[/dim]")
+
+    if session_id is None:
+        session_id = create_session(role=current_role)
 
     search_filters: dict | None = None
     if source:
         search_filters = {"source": source}
     elif tag:
         search_filters = {"tags": {"$contains": tag}}
+
+    first_question = True
 
     while True:
         try:
@@ -118,11 +152,25 @@ def chat(source: str | None, tag: str | None, role: str) -> None:
         role_obj = get_role(current_role)
         think_label = "Thinking deeply..." if role_obj.think_mode else "Thinking..."
 
-        with Live(Spinner("dots", text=think_label), console=console, transient=True):
+        # Set up streaming callback if enabled
+        if stream:
+            def _do_stream(prompt: str) -> str:
+                chunks: list[str] = []
+                with Live(Markdown(""), console=console, refresh_per_second=8) as live:
+                    for token in stream_llm(prompt):
+                        chunks.append(token)
+                        live.update(Markdown("".join(chunks)))
+                return "".join(chunks)
+            set_stream_callback(_do_stream)
+
+        with Live(Spinner("dots", text=think_label), console=console, transient=True) if not stream else _nullcontext():
             try:
                 result = agent.invoke(invoke_state)
                 answer = result.get("generation", "No answer generated.")
                 sources = result.get("sources", [])
+
+                if stream:
+                    clear_stream_callback()
 
                 # Check if role was auto-switched during processing
                 result_role = result.get("role", current_role)
@@ -130,13 +178,45 @@ def chat(source: str | None, tag: str | None, role: str) -> None:
                     console.print(f"[dim italic]Auto-switched to {result_role} role[/dim italic]")
                     current_role = result_role
 
-                show_answer(answer, sources)
+                if not stream:
+                    show_answer(answer, sources)
+                else:
+                    # Answer was already streamed, just show sources
+                    if sources:
+                        source_text = ", ".join(sources)
+                        console.print(f"\n  [dim]Sources: {source_text}[/dim]\n")
 
-                # Maintain rolling history
+                # Persist messages
+                add_message(session_id, "user", question)
+                add_message(session_id, "assistant", answer)
+
+                # Auto-title session from first question
+                if first_question:
+                    title = question[:80].strip()
+                    update_session_title(session_id, title)
+                    first_question = False
+
+                # Maintain rolling history with truncation to limit
+                # context window usage. Recent messages stay full; older
+                # assistant messages are truncated to settings.chat_truncate_len chars.
                 history.append({"role": "user", "content": question})
                 history.append({"role": "assistant", "content": answer})
-                if len(history) > _MAX_HISTORY:
-                    history = history[-_MAX_HISTORY:]
+                if len(history) > settings.chat_max_history:
+                    history = history[-settings.chat_max_history:]
+                # Truncate older assistant messages to save context space
+                for j in range(len(history) - settings.chat_recent_full):
+                    if history[j]["role"] == "assistant" and len(history[j]["content"]) > settings.chat_truncate_len:
+                        truncated = history[j]["content"][:settings.chat_truncate_len] + "..."
+                        history[j] = {**history[j], "content": truncated}
             except Exception as e:
+                if stream:
+                    clear_stream_callback()
                 _log.error("Agent error for question %r: %s", question[:80], e, exc_info=True)
-                show_error(f"Error: {e}")
+                # Provide specific error messages based on exception type
+                from garden.core.exceptions import OllamaConnectionError
+                if isinstance(e, OllamaConnectionError):
+                    show_error("Could not connect to Ollama. Is it running? Check 'ollama serve'.")
+                elif isinstance(e, (ConnectionError, TimeoutError, OSError)):
+                    show_error(f"Connection error: {e}. Check your Ollama server.")
+                else:
+                    show_error(f"Error: {e}")

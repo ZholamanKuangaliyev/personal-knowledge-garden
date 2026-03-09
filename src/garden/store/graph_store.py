@@ -1,14 +1,36 @@
+from collections import deque
+
 import networkx as nx
 
 from garden.core.models import Concept, ConceptLink
 from garden.store.database import get_connection
 
 _graph_cache: nx.Graph | None = None
+_cache_dirty: bool = False
 
 
 def _invalidate_cache() -> None:
     global _graph_cache
     _graph_cache = None
+
+
+def mark_cache_dirty() -> None:
+    """Mark the graph cache as dirty for deferred invalidation.
+
+    Use this during batch operations (e.g., ingestion) to avoid
+    rebuilding the graph after every individual write. Call
+    flush_cache() when the batch is done.
+    """
+    global _cache_dirty
+    _cache_dirty = True
+
+
+def flush_cache() -> None:
+    """Invalidate the graph cache if it was marked dirty."""
+    global _cache_dirty
+    if _cache_dirty:
+        _invalidate_cache()
+        _cache_dirty = False
 
 
 def get_graph() -> nx.Graph:
@@ -34,37 +56,36 @@ def get_graph() -> nx.Graph:
     return graph
 
 
-def add_concepts(concepts: list[Concept]) -> None:
+def add_concepts(concepts: list[Concept], *, batch: bool = False) -> None:
     conn = get_connection()
-    for c in concepts:
+    conn.executemany(
+        "INSERT OR REPLACE INTO concepts (name, source, description, category, importance) VALUES (?, ?, ?, ?, ?)",
+        [(c.name, c.source, c.description, c.category, c.importance) for c in concepts],
+    )
+    conn.commit()
+    if batch:
+        mark_cache_dirty()
+    else:
+        _invalidate_cache()
+
+
+def add_links(links: list[ConceptLink], *, batch: bool = False) -> None:
+    conn = get_connection()
+    # Single atomic upsert per link — accumulates weight on conflict.
+    # Replaces the old SELECT + INSERT/UPDATE two-query pattern, cutting
+    # database round-trips in half and eliminating race conditions.
+    for link in links:
         conn.execute(
-            "INSERT OR REPLACE INTO concepts (name, source, description) VALUES (?, ?, ?)",
-            (c.name, c.source, c.description),
+            "INSERT INTO concept_links (source_concept, target_concept, relation, weight) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(source_concept, target_concept) DO UPDATE SET weight = weight + excluded.weight",
+            (link.source_concept, link.target_concept, link.relation, link.weight),
         )
     conn.commit()
-    _invalidate_cache()
-
-
-def add_links(links: list[ConceptLink]) -> None:
-    conn = get_connection()
-    for link in links:
-        existing = conn.execute(
-            "SELECT weight FROM concept_links WHERE source_concept = ? AND target_concept = ?",
-            (link.source_concept, link.target_concept),
-        ).fetchone()
-
-        if existing:
-            conn.execute(
-                "UPDATE concept_links SET weight = ? WHERE source_concept = ? AND target_concept = ?",
-                (existing["weight"] + link.weight, link.source_concept, link.target_concept),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO concept_links (source_concept, target_concept, relation, weight) VALUES (?, ?, ?, ?)",
-                (link.source_concept, link.target_concept, link.relation, link.weight),
-            )
-    conn.commit()
-    _invalidate_cache()
+    if batch:
+        mark_cache_dirty()
+    else:
+        _invalidate_cache()
 
 
 def get_all_concepts() -> list[Concept]:
@@ -80,10 +101,10 @@ def get_concept_neighbors(concept: str, depth: int = 1) -> list[dict]:
 
     visited = set()
     result = []
-    frontier = [(concept, 0)]
+    frontier = deque([(concept, 0)])
 
     while frontier:
-        node, d = frontier.pop(0)
+        node, d = frontier.popleft()
         if node in visited or d > depth:
             continue
         visited.add(node)

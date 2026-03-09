@@ -19,12 +19,16 @@ dependencies = [
     "networkx>=3.0",
     "jinja2>=3.1",
     "pypdf>=4.0",
+    "tenacity>=9.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    "ruff>=0.8",
+    "hypothesis>=6.0",
+    "tenacity>=9.0",
 ]
 
 [tool.pytest.ini_options]
@@ -40,3 +44,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/garden"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]

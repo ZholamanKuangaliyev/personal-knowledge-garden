@@ -62,6 +62,8 @@ ollama pull nomic-embed-text
 | `garden status` | Dashboard showing document, chunk, concept, and card counts |
 | `garden forget <source>` | Remove a specific document and all its associated data |
 | `garden clear` | Wipe all data from the garden (requires confirmation) |
+| `garden search <query> [--semantic]` | Search your garden; `--semantic` adds concept graph results |
+| `garden sessions [list\|show\|delete]` | Browse, inspect, or delete past chat sessions |
 | `garden config` | View current configuration |
 | `garden config set <key> <value>` | Change a configuration value |
 
@@ -71,11 +73,11 @@ ollama pull nomic-embed-text
 
 **Chat** — Questions go through a LangGraph agent pipeline: routing, role detection, retrieval, relevance grading, and answer generation with source citations. If retrieved documents aren't relevant, the query is automatically rewritten (up to 2 retries). The chat supports 5 agent roles — `general` (fast, no reasoning overhead), `analyst`, `summarizer`, `creative`, and `researcher` (all with deep CoT reasoning via `/think` tokens). Roles can auto-switch based on your question or be set manually with `/switch <role>`.
 
-**Concept Linking** — Concepts extracted from different documents are connected based on co-occurrence and shared terminology. The graph builds up over time as you ingest more material.
+**Concept Linking** — Concepts extracted from different documents are connected based on co-occurrence, shared terminology, and embedding-based semantic similarity. The graph builds up over time as you ingest more material.
 
 **Spaced Repetition** — Flashcards are generated from your content and scheduled using the SM-2 algorithm. Cards resurface at increasing intervals based on how well you recall them.
 
-**Insights** — The surprise engine finds loosely connected concepts across different documents and asks the LLM to identify non-obvious relationships between them.
+**Insights** — The surprise engine finds the most distant cross-source concept pairs in the knowledge graph and asks the LLM to identify non-obvious relationships between them.
 
 ## Changing Models
 
@@ -111,7 +113,7 @@ PKG_LLM_MODEL=mistral:7b garden chat
 
 ## Testing
 
-The project includes a comprehensive test suite (238 tests) covering all modules. Tests use isolated SQLite databases via `tmp_path` and mock all external dependencies (Ollama LLM, ChromaDB).
+The project includes a comprehensive test suite (322+ tests) covering all modules. Tests use isolated SQLite databases via `tmp_path` and mock all external dependencies (Ollama LLM, ChromaDB).
 
 ```bash
 # Install dev dependencies
@@ -154,6 +156,49 @@ data/
 To start fresh, run `garden clear` or delete the `data/` directory.
 
 ## Changelog
+
+### v0.4.0
+
+**Performance & Pipeline**
+- Embedder is now a cached singleton — no re-initialization per call during ingestion
+- Batch card INSERT via `executemany()` replaces per-card loop (10-20% faster card generation)
+- Graph cache batch invalidation — deferred rebuild during multi-file ingestion instead of per-write
+- LLM retry now uses exponential backoff with jitter to prevent thundering herd on reconnect
+- Deterministic insight engine — exhaustive cross-source bridge pair ranking replaces random sampling
+
+**Knowledge Graph Quality**
+- Semantic concept linking via embedding cosine similarity — concepts without word overlap now get linked
+- Stopword filter prevents false-positive links from words like "in", "the", "is"
+- Flashcard deduplication across chunks — normalized question matching prevents near-identical cards
+
+**Knowledge Gap Awareness**
+- New `knowledge_gap` state flag — when retrieval retries are exhausted with no relevant docs, the generator is told explicitly, preventing hallucination
+- Generator prompt now instructs the LLM to acknowledge when information is not in the garden
+
+**New CLI Commands**
+- `garden sessions [list|show|delete]` — browse, inspect, and delete past chat sessions with prefix ID matching
+- `garden search --semantic` — hybrid search combining vector results with concept graph neighbors
+
+**Configurable Pipeline**
+- Moved all hardcoded constants to `Settings` (configurable via `garden.json` or `PKG_` env vars):
+  - `grader_threshold` (embedding L2 distance cutoff, default 1.5)
+  - `grader_content_len` (LLM grader truncation, default 300)
+  - `rewriter_failed_docs` (rejected docs sent to rewriter, default 3)
+  - `chat_max_history`, `chat_recent_full`, `chat_truncate_len` (chat context window)
+  - `concept_batch_size` (chunks per LLM call during extraction, default 5)
+
+**Data Model Enrichment (Schema v2)**
+- Concept: added `category` and `importance` fields
+- Flashcard: added `last_reviewed_at`, `review_count`, `source_chunk_id` for review tracking and traceability
+- Chunk: added `created_at` timestamp and extensible `metadata` dict
+- SearchResult: added `chunk_index` and `metadata` from vector store
+- Automatic schema migration on first run — existing databases upgraded seamlessly
+- New indexes on `flashcards(created_at)`, `concept_links(weight)`, `documents(ingested_at)`
+
+**Reliability**
+- Chat error messages now distinguish Ollama connection failures from generic errors
+- Transaction safety documentation — ChromaDB writes recommended as last step
+- Chat store query optimized — SQL subquery replaces Python-side reversal
 
 ### v0.3.2
 

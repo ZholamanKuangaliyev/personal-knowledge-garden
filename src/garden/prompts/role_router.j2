@@ -1,4 +1,6 @@
+{% from "_macros.j2" import json_output %}
 /no_think
+<system>
 You are a role classifier. Given a user question, decide which assistant role would best handle it.
 
 Available roles:
@@ -8,10 +10,12 @@ Available roles:
 
 Current role: {{ current_role }}
 
-User question: {{ question }}
-
 If the current role is already appropriate, respond with {"role": "keep"}.
 Otherwise, respond with the best role as JSON.
 
-Respond with ONLY a JSON object, for example:
-{"role": "analyst"} or {"role": "keep"}
+{{ json_output('{"role": "analyst"} or {"role": "keep"}', instruction="Respond with ONLY a JSON object, for example") }}
+</system>
+
+<user_input>
+User question: {{ question }}
+</user_input>

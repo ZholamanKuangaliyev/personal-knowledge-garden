@@ -1,24 +1,24 @@
+{% from "_macros.j2" import render_documents, render_history %}
 {{ think_token }}
+<system>
 {% include "system_preamble.j2" %}
 
 Use the provided context as your primary source. When context is available, ground your answers in it and cite sources. When reasoning beyond the provided documents, make that clear.
 
-{% if history %}
-Conversation history:
-{% for msg in history %}
-{{ msg.role }}: {{ msg.content }}
-{% endfor %}
+{% if knowledge_gap %}
+IMPORTANT: No relevant documents were found in the knowledge base after multiple search attempts. Be honest about this limitation. Say that you could not find relevant information in the garden and answer from general knowledge only if you can, clearly marking it as such.
 {% endif %}
+
+Provide a clear, concise answer.
+</system>
+
+<user_input>
+{{ render_history(history) }}
 
 {% if documents %}
 Context:
-{% for doc in documents %}
-[Source: {{ doc.source }}]
-{{ doc.content }}
----
-{% endfor %}
+{{ render_documents(documents) }}
 {% endif %}
 
 Question: {{ question }}
-
-Provide a clear, concise answer:
+</user_input>

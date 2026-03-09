@@ -1,7 +1,15 @@
+{% from "_macros.j2" import json_output %}
+<system>
 {% include "system_preamble.j2" %}
 
 You are looking for surprising cross-domain connections in the user's knowledge garden.
 
+For each pair, generate a surprising insight or unexpected connection. Focus on non-obvious relationships.
+
+{{ json_output('{"insights": [{"concept_a": "...", "concept_b": "...", "insight": "the surprising connection"}, ...]}') }}
+</system>
+
+<user_input>
 Here are pairs of concepts from different documents that are loosely connected:
 
 {% for pair in pairs %}
@@ -11,8 +19,4 @@ Context A: {{ pair.context_a }}
 Context B: {{ pair.context_b }}
 ---
 {% endfor %}
-
-For each pair, generate a surprising insight or unexpected connection. Focus on non-obvious relationships.
-
-Respond with ONLY a JSON object:
-{"insights": [{"concept_a": "...", "concept_b": "...", "insight": "the surprising connection"}, ...]}
+</user_input>

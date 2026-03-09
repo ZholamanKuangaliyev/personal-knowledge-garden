@@ -11,6 +11,8 @@ wheels/
 .env
 .claude/
 AGENT.md
+CLAUDE.md
+WALKTHROUGH.md
 
 # Runtime data
 data/
@@ -27,6 +29,9 @@ coverage.xml
 # IDE
 .vscode/
 .idea/
+.github/
+.hypothesis/
+.ruff_cache
 
 # OS
 Thumbs.db

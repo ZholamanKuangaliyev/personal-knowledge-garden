@@ -2,9 +2,11 @@ import json
 import re
 
 from langchain_ollama import ChatOllama
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from garden.core.config import settings
-from garden.core.logging import get_logger
+from garden.core.exceptions import OllamaConnectionError
+from garden.core.logging import get_logger, timed
 
 _log = get_logger("llm_utils")
 
@@ -25,6 +27,53 @@ def get_llm() -> ChatOllama:
 def reset_llm() -> None:
     global _llm
     _llm = None
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=1, max=10, jitter=2),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+    reraise=True,
+)
+@timed("llm.invoke")
+def invoke_llm(prompt: str) -> str:
+    """Invoke the LLM with retry logic and timing. Returns the response content string."""
+    try:
+        llm = get_llm()
+        response = llm.invoke(prompt)
+        return response.content
+    except (ConnectionError, TimeoutError, OSError) as exc:
+        _log.warning("LLM connection failed (will retry): %s", exc)
+        raise
+    except Exception as exc:
+        _log.error("LLM invocation failed: %s", exc)
+        raise OllamaConnectionError(f"LLM invocation failed: {exc}") from exc
+
+
+def stream_llm(prompt: str):
+    """Stream LLM response token-by-token. Yields content strings."""
+    try:
+        llm = get_llm()
+        for chunk in llm.stream(prompt):
+            if chunk.content:
+                yield chunk.content
+    except Exception as exc:
+        _log.error("LLM streaming failed: %s", exc)
+        raise OllamaConnectionError(f"LLM streaming failed: {exc}") from exc
+
+
+async def ainvoke_llm(prompt: str) -> str:
+    """Async version of invoke_llm for concurrent operations."""
+    try:
+        llm = get_llm()
+        response = await llm.ainvoke(prompt)
+        return response.content
+    except (ConnectionError, TimeoutError, OSError) as exc:
+        _log.warning("Async LLM connection failed: %s", exc)
+        raise
+    except Exception as exc:
+        _log.error("Async LLM invocation failed: %s", exc)
+        raise OllamaConnectionError(f"Async LLM invocation failed: {exc}") from exc
 
 
 def parse_json_response(text: str) -> dict:

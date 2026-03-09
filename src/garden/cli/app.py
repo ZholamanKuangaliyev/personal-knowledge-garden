@@ -11,6 +11,7 @@ from garden.cli.links import links
 from garden.cli.migrate_embeddings import migrate_embeddings
 from garden.cli.review import review
 from garden.cli.search import search
+from garden.cli.sessions import sessions
 from garden.cli.status import status
 from garden.cli.surprise import surprise
 from garden.core.logging import setup_logging
@@ -18,10 +19,11 @@ from garden.core.logging import setup_logging
 
 @click.group(invoke_without_command=True)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging to stderr.")
+@click.option("--json-logs", is_flag=True, help="Output structured JSON logs.")
 @click.pass_context
-def cli(ctx: click.Context, verbose: bool) -> None:
+def cli(ctx: click.Context, verbose: bool, json_logs: bool) -> None:
     """Personal Knowledge Garden - your second brain CLI."""
-    setup_logging(verbose=verbose)
+    setup_logging(verbose=verbose, structured=json_logs)
     if ctx.invoked_subcommand is None:
         ctx.invoke(chat)
 
@@ -37,5 +39,6 @@ cli.add_command(forget)
 cli.add_command(clear)
 cli.add_command(config)
 cli.add_command(search)
+cli.add_command(sessions)
 cli.add_command(migrate_embeddings)
 cli.add_command(export)

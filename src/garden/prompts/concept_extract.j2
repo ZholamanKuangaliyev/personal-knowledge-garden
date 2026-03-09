@@ -1,15 +1,26 @@
+{% from "_macros.j2" import render_chunks, json_output %}
+<system>
 {% include "system_preamble.j2" %}
 
-Extract key concepts from the following text chunks. For each concept, provide its name and a brief description.
+Extract 3-8 key concepts from the following text chunks. A good concept is:
+- A specific noun phrase (e.g., "gradient descent", not just "optimization" or "math")
+- Something the user would want to find or connect to later
+- Not a generic category (avoid "introduction", "conclusion", "overview", "example")
+- Not a proper noun that only appears once without explanation
 
+Use lowercase. If a concept has a common abbreviation, use the full form (e.g., "natural language processing" not "NLP").
+
+{% if existing_concepts %}
+These concepts already exist in the garden: {{ existing_concepts | join(", ") }}.
+Reuse existing names when the same concept appears. Do not create duplicates under different names.
+{% endif %}
+
+{{ json_output('{"concepts": [{"name": "concept name", "description": "brief description"}, ...]}') }}
+</system>
+
+<user_input>
 Source document: {{ source }}
 
 Text chunks:
-{% for chunk in chunks %}
-[Chunk {{ loop.index0 }}]
-{{ chunk }}
----
-{% endfor %}
-
-Respond with ONLY a JSON object:
-{"concepts": [{"name": "concept name", "description": "brief description"}, ...]}
+{{ render_chunks(chunks) }}
+</user_input>

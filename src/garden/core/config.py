@@ -48,8 +48,20 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
 
     # Retrieval
-    retrieval_k: int = 5
+    retrieval_k: int = 3
     max_retries: int = 2
+    skip_grading: bool = False
+    grader_threshold: float = 1.5
+    grader_content_len: int = 300
+    rewriter_failed_docs: int = 3
+
+    # Chat
+    chat_max_history: int = 20
+    chat_recent_full: int = 6
+    chat_truncate_len: int = 200
+
+    # Concept extraction
+    concept_batch_size: int = 5
 
     # SRS
     default_review_count: int = 10

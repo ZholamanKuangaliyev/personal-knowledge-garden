@@ -26,13 +26,14 @@ class TestDatabaseInit:
         assert columns == {
             "id", "question", "answer", "source", "tags",
             "created_at", "easiness", "interval", "repetitions", "next_review",
+            "last_reviewed_at", "review_count", "source_chunk_id",
         }
 
     def test_concepts_schema(self):
         conn = get_connection()
         info = conn.execute("PRAGMA table_info(concepts)").fetchall()
         columns = {r["name"] for r in info}
-        assert columns == {"name", "source", "description"}
+        assert columns == {"name", "source", "description", "category", "importance"}
 
     def test_concept_links_schema(self):
         conn = get_connection()

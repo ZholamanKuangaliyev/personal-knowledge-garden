@@ -13,6 +13,8 @@ from garden.agent.roles import (
     detect_role,
     get_role,
     get_think_token,
+    role_registry,
+    _cached_detect,
 )
 
 
@@ -49,6 +51,16 @@ class TestRoleDefinitions:
             assert ROLES[name].think_mode is True, f"{name} should use think mode"
 
 
+class TestRoleRegistry:
+    def test_register_new_role(self):
+        custom = Role(name="test_custom", think_mode=False, description="Test", template="role_general.j2")
+        role_registry.register(custom)
+        assert "test_custom" in role_registry.valid_roles
+        assert role_registry.get("test_custom").name == "test_custom"
+        # Cleanup
+        del role_registry._roles["test_custom"]
+
+
 class TestGetRole:
     def test_get_existing_role(self):
         role = get_role("analyst")
@@ -70,24 +82,20 @@ class TestThinkToken:
 
 
 class TestDetectRole:
-    @patch("garden.agent.roles.get_llm")
-    def test_auto_detect_switches_role(self, mock_get_llm):
-        mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(
-            content=json.dumps({"role": "analyst"})
-        )
+    def setup_method(self):
+        # Clear LRU cache between tests
+        _cached_detect.cache_clear()
+
+    @patch("garden.agent.roles.invoke_llm")
+    def test_auto_detect_switches_role(self, mock_invoke):
+        mock_invoke.return_value = json.dumps({"role": "analyst"})
 
         result = detect_role("Compare and analyze these two theories", "general")
         assert result == "analyst"
 
-    @patch("garden.agent.roles.get_llm")
-    def test_detect_keeps_current_when_told(self, mock_get_llm):
-        mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(
-            content=json.dumps({"role": "keep"})
-        )
+    @patch("garden.agent.roles.invoke_llm")
+    def test_detect_keeps_current_when_told(self, mock_invoke):
+        mock_invoke.return_value = json.dumps({"role": "keep"})
 
         result = detect_role("What is X?", "general")
         assert result == "general"
@@ -97,24 +105,18 @@ class TestDetectRole:
         result = detect_role("anything", "analyst")
         assert result == "analyst"
 
-    @patch("garden.agent.roles.get_llm")
-    def test_detect_handles_bad_json(self, mock_get_llm):
-        mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(content="not json at all")
+    @patch("garden.agent.roles.invoke_llm")
+    def test_detect_handles_bad_json(self, mock_invoke):
+        mock_invoke.side_effect = ValueError("parse error")
 
         result = detect_role("question", "general")
         assert result == "general"
 
-    @patch("garden.agent.roles.get_llm")
-    def test_detect_handles_invalid_role(self, mock_get_llm):
-        mock_llm = MagicMock()
-        mock_get_llm.return_value = mock_llm
-        mock_llm.invoke.return_value = MagicMock(
-            content=json.dumps({"role": "nonexistent_role"})
-        )
+    @patch("garden.agent.roles.invoke_llm")
+    def test_detect_handles_invalid_role(self, mock_invoke):
+        mock_invoke.return_value = json.dumps({"role": "nonexistent_role"})
 
-        result = detect_role("question", "general")
+        result = detect_role("question about something", "general")
         assert result == "general"
 
 

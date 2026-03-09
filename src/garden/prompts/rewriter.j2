@@ -1,8 +1,26 @@
+{% from "_macros.j2" import json_output %}
+<system>
 {% include "system_preamble.j2" %}
 
-The original question did not retrieve relevant documents. Rewrite it to be more specific and better suited for semantic search.
+The original question did not retrieve useful documents from the knowledge garden. Rewrite it to improve semantic search results.
 
+Semantic search matches meaning, not keywords. A good rewrite:
+- Uses different terminology and synonyms to reach different document regions
+- Breaks a broad question into a more specific sub-question
+- Focuses on a concrete aspect rather than a general overview
+{% if failed_documents %}
+
+The retriever found these documents, but they were not relevant:
+{% for doc in failed_documents %}
+- [{{ doc.source }}]: {{ doc.preview }}...
+{% endfor %}
+
+Your rewrite should diverge from this content. Target different aspects, use different terms, or narrow the focus to a specific sub-topic not covered above.
+{% endif %}
+
+{{ json_output('{"rewritten_question": "your improved question here"}') }}
+</system>
+
+<user_input>
 Original question: {{ question }}
-
-Respond with ONLY a JSON object:
-{"rewritten_question": "your improved question here"}
+</user_input>

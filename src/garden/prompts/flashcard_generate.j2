@@ -1,10 +1,22 @@
+{% from "_macros.j2" import json_output %}
+<system>
 {% include "system_preamble.j2" %}
 
-Generate flashcards from the following text chunk. Each flashcard should test understanding of a key concept, fact, or relationship.
+Generate 2-4 flashcards from the following text. Great flashcards:
+- Test understanding, not just recall (prefer "why" and "how" over "what")
+- Ask about relationships, trade-offs, or comparisons between concepts
+- Use concrete scenarios: "Given X, what would happen if Y?"
+- Avoid trivial definitions that can be looked up in seconds
+- Have answers that are concise but complete (1-3 sentences)
 
+Bad flashcard: "What is gradient descent?" → "An optimization algorithm."
+Good flashcard: "Why might gradient descent get stuck in a local minimum, and what techniques help avoid this?" → "The loss surface can have many local minima. Techniques like momentum, learning rate schedules, and stochastic (mini-batch) updates add noise that helps escape shallow local minima."
+
+{{ json_output('{"cards": [{"question": "...", "answer": "..."}, ...]}') }}
+</system>
+
+<user_input>
 Source: {{ source }}
 Text:
 {{ content }}
-
-Generate 2-4 flashcards. Respond with ONLY a JSON object:
-{"cards": [{"question": "...", "answer": "..."}, ...]}
+</user_input>

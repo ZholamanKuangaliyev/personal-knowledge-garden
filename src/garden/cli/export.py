@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import click
@@ -8,11 +9,8 @@ from garden.ui.console import console
 _log = get_logger("cli.export")
 
 
-@click.command()
-@click.option("--output", "-o", default="export", type=click.Path(path_type=Path), help="Output directory.")
-def export(output: Path) -> None:
+def _export_markdown(output: Path) -> None:
     """Export knowledge garden as markdown files."""
-    from garden.store.card_store import get_due_cards
     from garden.store.database import get_connection
     from garden.store.graph_store import get_all_concepts
 
@@ -84,3 +82,87 @@ def export(output: Path) -> None:
         exported += 1
 
     console.print(f"[bold green]Exported {exported} document(s) to {output}/[/bold green]")
+
+
+def _export_anki(output: Path) -> None:
+    """Export flashcards as a tab-separated file importable by Anki."""
+    from garden.store.database import get_connection
+
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT question, answer, source, tags FROM flashcards ORDER BY source"
+    ).fetchall()
+
+    if not rows:
+        console.print("[yellow]No flashcards to export.[/yellow]")
+        return
+
+    output.mkdir(parents=True, exist_ok=True)
+    out_path = output / "garden_flashcards.txt"
+
+    lines = []
+    for row in rows:
+        # Anki tab-separated: front\tback\ttags
+        question = row["question"].replace("\t", " ").replace("\n", "<br>")
+        answer = row["answer"].replace("\t", " ").replace("\n", "<br>")
+        tags_str = row["tags"].replace(",", " ") if row["tags"] else ""
+        source_tag = row["source"].replace(" ", "_").replace(".", "_")
+        all_tags = f"{tags_str} source::{source_tag}".strip()
+        lines.append(f"{question}\t{answer}\t{all_tags}")
+
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+    console.print(f"[bold green]Exported {len(rows)} flashcard(s) to {out_path}[/bold green]")
+    console.print("[dim]Import into Anki: File > Import > select the .txt file[/dim]")
+
+
+def _export_json(output: Path) -> None:
+    """Export entire knowledge garden as JSON."""
+    from garden.store.database import get_connection
+    from garden.store.graph_store import get_all_concepts
+
+    conn = get_connection()
+    output.mkdir(parents=True, exist_ok=True)
+
+    # Export documents
+    docs = [dict(r) for r in conn.execute("SELECT * FROM documents").fetchall()]
+
+    # Export concepts
+    concepts = [dict(r) for r in conn.execute("SELECT * FROM concepts").fetchall()]
+
+    # Export links
+    links = [dict(r) for r in conn.execute("SELECT * FROM concept_links").fetchall()]
+
+    # Export flashcards
+    cards = [dict(r) for r in conn.execute("SELECT * FROM flashcards").fetchall()]
+
+    data = {
+        "documents": docs,
+        "concepts": concepts,
+        "concept_links": links,
+        "flashcards": cards,
+    }
+
+    out_path = output / "garden_export.json"
+    out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    console.print(
+        f"[bold green]Exported {len(docs)} docs, {len(concepts)} concepts, "
+        f"{len(links)} links, {len(cards)} cards to {out_path}[/bold green]"
+    )
+
+
+@click.command()
+@click.option("--output", "-o", default="export", type=click.Path(path_type=Path), help="Output directory.")
+@click.option(
+    "--format", "-f", "fmt",
+    type=click.Choice(["markdown", "anki", "json"]),
+    default="markdown",
+    help="Export format.",
+)
+def export(output: Path, fmt: str) -> None:
+    """Export knowledge garden in various formats."""
+    exporters = {
+        "markdown": _export_markdown,
+        "anki": _export_anki,
+        "json": _export_json,
+    }
+    exporters[fmt](output)

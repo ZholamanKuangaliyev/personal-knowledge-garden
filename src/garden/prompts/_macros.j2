@@ -1,0 +1,53 @@
+{# ── Document & Chunk Rendering ── #}
+
+{% macro render_documents(documents, show_score=false) %}
+{% for doc in documents %}
+[Source: {{ doc.source }}]
+{% if show_score and doc.score is defined %}(Relevance: {{ doc.score | round(2) }}){% endif %}
+{{ doc.content }}
+---
+{% endfor %}
+{% endmacro %}
+
+{% macro render_chunks(chunks, label="Chunk") %}
+{% for chunk in chunks %}
+[{{ label }} {{ loop.index0 }}]
+{{ chunk }}
+---
+{% endfor %}
+{% endmacro %}
+
+{% macro render_indexed_documents(documents) %}
+{% for doc in documents %}
+[{{ loop.index0 }}] Source: {{ doc.source }}
+{{ doc.content }}
+---
+{% endfor %}
+{% endmacro %}
+
+{# ── Conversation History ── #}
+
+{% macro render_history(history) %}
+{% if history %}
+Conversation history:
+{% for msg in history %}
+{{ msg.role }}: {{ msg.content }}
+{% endfor %}
+{% endif %}
+{% endmacro %}
+
+{# ── Output Format Instructions ── #}
+
+{% macro json_output(example, instruction="Respond with ONLY a JSON object") %}
+{{ instruction }}:
+{{ example }}
+{% endmacro %}
+
+{# ── Section Helpers ── #}
+
+{% macro section(title, content) %}
+{% if content %}
+{{ title }}:
+{{ content }}
+{% endif %}
+{% endmacro %}

@@ -71,6 +71,8 @@ def search(query: str, k: int | None = None, where: dict | None = None) -> list[
             content=doc.page_content,
             source=doc.metadata.get("source", "unknown"),
             score=score,
+            chunk_index=doc.metadata.get("chunk_index", 0),
+            metadata={k: v for k, v in doc.metadata.items() if k not in ("source", "chunk_index")},
         )
         for doc, score in results
     ]
